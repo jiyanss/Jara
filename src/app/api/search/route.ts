@@ -4,6 +4,8 @@ import { globalCache } from "@/lib/cache";
 import { webSearchAny } from "@/lib/ddg";
 
 export const dynamic = "force-dynamic";
+// Vercel serverless: allow enough time for the multi-provider fallback chain
+export const maxDuration = 30;
 
 interface WebResult {
   url: string;
@@ -86,11 +88,23 @@ export async function GET(request: NextRequest) {
         console.warn("[api/search] z-ai-sdk unavailable, falling back:", (err as Error).message);
       }
 
-      // Strategy 2: keyless web search chain (DuckDuckGo → Lite → Mojeek)
+      // Strategy 2: keyless web search chain
+      // (Brave → DDG → DDG Lite → Qwant → Mojeek, then Google News → Wikipedia)
       if (results.length === 0) {
-        const fallback = await webSearchAny(q, recencyDays);
-        results = fallback.results;
-        provider = fallback.provider;
+        try {
+          const fallback = await webSearchAny(q, recencyDays);
+          results = fallback.results;
+          provider = fallback.provider;
+        } catch (err) {
+          console.error("[api/search] all fallback providers failed:", err);
+          return NextResponse.json(
+            {
+              error:
+                "Arama sağlayıcılarına şu anda ulaşılamıyor. Lütfen birkaç dakika sonra tekrar deneyin.",
+            },
+            { status: 502 }
+          );
+        }
       }
 
       if (results.length === 0) {

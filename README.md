@@ -61,8 +61,10 @@ Proje iki katmanlı arama mimarisi kullanır:
 | Ortam | Web Arama | Görsel Arama | Öneriler | AI Özeti | Sesli Arama |
 | --- | --- | --- | --- | --- | --- |
 | Z.ai sandbox | z-ai-sdk web_search | z-ai-sdk | LLM | LLM | ASR |
-| **Vercel / her yer** | DuckDuckGo → Lite → Mojeek zinciri | DuckDuckGo | DuckDuckGo | Kullanılamaz* | Kullanılamaz* |
+| **Vercel / her yer** | Brave* → DDG → Lite → Qwant → Mojeek → Google News → Wikipedia | DDG → Qwant → Wikimedia Commons | DDG → Qwant | Kullanılamaz* | Kullanılamaz* |
 
+> \* İsteğe bağlı: [Brave Search API](https://api-dashboard.search.brave.com) ücretsiz anahtarı (ayda 2.000 sorgu) alıp Vercel ortam değişkeni `BRAVE_API_KEY` olarak eklerseniz web aramaları öncelikle Brave üzerinden yapılır — en yüksek kalite. Anahtar olmadan da anahtarsız zincir çalışır.
+>
 > \* AI özeti ve sesli arama, Z.ai SDK kimlik doğrulaması gerektirir; desteklenmeyen ortamlarda arayüz bunu nazikçe belirtir ve kalan tüm özellikler sorunsuz çalışmaya devam eder.
 
 **Vercel'e yükleme:**

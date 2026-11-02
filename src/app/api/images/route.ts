@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getZAI } from "@/lib/zai";
 import { globalCache } from "@/lib/cache";
-import { ddgImageSearch } from "@/lib/ddg";
+import { ddgImageSearch, qwantImageSearch, commonsImageSearch } from "@/lib/ddg";
 
 export const dynamic = "force-dynamic";
 
@@ -56,12 +56,26 @@ export async function GET(request: NextRequest) {
         console.warn("[api/images] z-ai-sdk unavailable, falling back:", (err as Error).message);
       }
 
-      // Strategy 2: keyless DuckDuckGo image search
+      // Strategy 2: keyless chain — DDG images → Qwant images → Openverse
       if (results.length === 0) {
         try {
           results = await ddgImageSearch(q);
         } catch (err) {
           console.error("[api/images] ddg image search failed:", err);
+        }
+      }
+      if (results.length === 0) {
+        try {
+          results = await qwantImageSearch(q);
+        } catch (err) {
+          console.error("[api/images] qwant image search failed:", err);
+        }
+      }
+      if (results.length === 0) {
+        try {
+          results = await commonsImageSearch(q);
+        } catch (err) {
+          console.error("[api/images] commons image search failed:", err);
         }
       }
 

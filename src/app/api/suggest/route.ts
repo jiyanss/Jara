@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getZAI } from "@/lib/zai";
 import { globalCache } from "@/lib/cache";
-import { ddgSuggest } from "@/lib/ddg";
+import { ddgSuggest, qwantSuggest } from "@/lib/ddg";
 
 export const dynamic = "force-dynamic";
 
@@ -65,12 +65,19 @@ export async function GET(request: NextRequest) {
       console.warn("[api/suggest] z-ai-sdk unavailable, falling back:", (err as Error).message);
     }
 
-    // Strategy 2: keyless DuckDuckGo autocomplete
+    // Strategy 2: keyless chains — DuckDuckGo autocomplete, then Qwant
     if (suggestions.length === 0) {
       try {
         suggestions = await ddgSuggest(q);
       } catch (err) {
         console.error("[api/suggest] ddg suggest failed:", err);
+      }
+    }
+    if (suggestions.length === 0) {
+      try {
+        suggestions = await qwantSuggest(q);
+      } catch (err) {
+        console.error("[api/suggest] qwant suggest failed:", err);
       }
     }
 
