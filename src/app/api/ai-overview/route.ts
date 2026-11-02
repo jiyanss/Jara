@@ -82,7 +82,7 @@ export async function POST(request: NextRequest) {
         {
           role: "assistant",
           content:
-            'Sen "Ara!" arama motorunun AI özet asistanısın. Sana kullanıcının arama sorgusu ve o sorguya ait gerçek web arama sonuçları verilecek. Görevin: (1) Sonuçlara dayanarak sorguya doğrudan yanıt veren 2-4 cümlelik bir özet yaz. Özet, sorgunun dilinde olsun (sorgu Türkçe ise Türkçe yaz). Yalnızca sonuçlarda geçen bilgileri kullan, asla uydurma. Uygun gördüğün yerlerde **kalın** vurgu kullanabilirsin. (2) Sorguyla ilgili 4 kısa takip arama önerisi üret. Yanıtını SADECE şu JSON formatında ver, başka hiçbir metin ekleme: {"summary": "...", "related": ["öneri1", "öneri2", "öneri3", "öneri4"]}',
+            'Sen "Jara!" arama motorunun AI özet asistanısın. Sana kullanıcının arama sorgusu ve o sorguya ait gerçek web arama sonuçları verilecek. Görevin: (1) Sonuçlara dayanarak sorguya doğrudan yanıt veren 2-4 cümlelik bir özet yaz. Özet, sorgunun dilinde olsun (sorgu Türkçe ise Türkçe yaz). Yalnızca sonuçlarda geçen bilgileri kullan, asla uydurma. Uygun gördüğün yerlerde **kalın** vurgu kullanabilirsin. (2) Sorguyla ilgili 4 kısa takip arama önerisi üret. Yanıtını SADECE şu JSON formatında ver, başka hiçbir metin ekleme: {"summary": "...", "related": ["öneri1", "öneri2", "öneri3", "öneri4"]}',
         },
         {
           role: "user",

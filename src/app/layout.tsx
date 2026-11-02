@@ -15,14 +15,11 @@ const geistMono = Geist_Mono({
 });
 
 export const metadata: Metadata = {
-  title: "Ara! — Gerçek Zamanlı Web Arama Motoru",
+  title: "Jara! — Gerçek Zamanlı Web Arama Motoru",
   description:
     "Google tarzı arama motoru: gerçek web araması, görsel arama, AI özeti ve sesli arama.",
   keywords: ["arama motoru", "web arama", "görsel arama", "AI arama", "yapay zeka"],
-  authors: [{ name: "Ara!" }],
-  icons: {
-    icon: "https://z-cdn.chatglm.cn/z-ai/static/logo.svg",
-  },
+  authors: [{ name: "Jara!" }],
 };
 
 export default function RootLayout({

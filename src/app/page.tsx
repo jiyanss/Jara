@@ -149,8 +149,8 @@ export default function Home() {
   // ---- Document title ----
   useEffect(() => {
     document.title = activeQuery
-      ? `${activeQuery} — Ara!`
-      : "Ara! — Gerçek Zamanlı Web Arama Motoru";
+      ? `${activeQuery} — Jara!`
+      : "Jara! — Gerçek Zamanlı Web Arama Motoru";
   }, [activeQuery]);
 
   // ---- State + URL synchronization ----
@@ -379,7 +379,7 @@ export default function Home() {
           animate={{ opacity: 1, scale: 1 }}
           transition={{ duration: 0.4 }}
         >
-          <Logo size="text-7xl" />
+          <Logo className="h-[68px] w-auto" />
         </motion.div>
       </div>
     );
@@ -398,7 +398,7 @@ export default function Home() {
                 aria-label="Ana sayfaya dön"
                 className="shrink-0"
               >
-                <Logo size="text-2xl md:text-3xl" />
+                <Logo className="h-6 md:h-[30px] w-auto" />
               </button>
               <SearchBar
                 value={inputValue}
@@ -527,7 +527,7 @@ export default function Home() {
               animate={{ opacity: 1, y: 0 }}
               transition={{ duration: 0.5 }}
             >
-              <Logo size="text-7xl md:text-8xl" />
+              <Logo className="h-[72px] md:h-24 w-auto" />
             </motion.div>
 
             <motion.p
@@ -611,7 +611,7 @@ export default function Home() {
       <footer className="mt-auto border-t bg-muted/40">
         <div className="mx-auto flex w-full max-w-6xl flex-col items-center justify-between gap-2 px-4 py-3 text-sm text-muted-foreground sm:flex-row">
           <p className="flex items-center gap-1">
-            <Logo size="text-base" />
+            <Logo className="h-5 w-auto" />
             <span className="ml-1">— gerçek zamanlı web araması</span>
           </p>
           <p>Türkiye&apos;den ❤️ ile geliştirildi</p>

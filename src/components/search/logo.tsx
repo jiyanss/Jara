@@ -1,24 +1,25 @@
+import Image from "next/image";
+
 interface LogoProps {
-  /** Tailwind font size classes, e.g. "text-6xl" or "text-2xl" */
-  size?: string;
+  /** Height classes for the logo, e.g. "h-[72px]" or "h-6 md:h-8" */
   className?: string;
 }
 
 /**
- * "Ara!" wordmark in Google brand colors — the user explicitly requested a
- * Google-style search engine, so the classic multicolor palette is used here.
+ * "Jara!" wordmark — user-provided multicolor logo with a transparent
+ * background so it renders correctly on both light and dark themes.
+ * Set the desired size via className (height + w-auto keeps the aspect ratio).
  */
-export function Logo({ size = "text-6xl", className = "" }: LogoProps) {
+export function Logo({ className = "" }: LogoProps) {
   return (
-    <span
-      aria-label="Ara!"
-      role="img"
-      className={`select-none font-bold leading-none tracking-tight ${size} ${className}`}
-    >
-      <span className="text-[#4285F4]">A</span>
-      <span className="text-[#EA4335]">r</span>
-      <span className="text-[#F4B400]">a</span>
-      <span className="text-[#34A853]">!</span>
-    </span>
+    <Image
+      src="/jara-logo.png"
+      alt="Jara!"
+      width={560}
+      height={192}
+      priority
+      draggable={false}
+      className={`w-auto select-none ${className}`}
+    />
   );
 }

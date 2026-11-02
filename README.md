@@ -1,4 +1,4 @@
-# Ara! — Gerçek Zamanlı Web Arama Motoru
+# Jara! — Gerçek Zamanlı Web Arama Motoru
 
 Google tarzı bir arayüze sahip, **gerçek web araması** yapan modern bir arama motoru. [z-ai-web-dev-sdk](https://www.npmjs.com/package/z-ai-web-dev-sdk) altyapısını kullanarak canlı web sonuçları, görseller, AI özetleri ve sesli arama sunar.
 
@@ -79,7 +79,7 @@ veya GitHub'a pushladıktan sonra [vercel.com/new](https://vercel.com/new) üzer
 ```bash
 git init
 git add .
-git commit -m "Ara! arama motoru - ilk sürüm"
+git commit -m "Jara! arama motoru - ilk sürüm"
 git branch -M main
 git remote add origin https://github.com/KULLANICI_ADIN/REPO_ADIN.git
 git push -u origin main
