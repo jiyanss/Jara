@@ -14,8 +14,9 @@ export function Logo({ size = "text-6xl", className = "" }: LogoProps) {
       aria-label="Ara!"
       role="img"
       className={`select-none font-bold leading-none tracking-tight ${size} ${className}`}
-    >
-      <span className="text-[#4285F4]">A</span>
+      >
+      <span className="text-[#B39DDB]">J</span>
+      <span className="text-[#4285F4]">a</span>
       <span className="text-[#EA4335]">r</span>
       <span className="text-[#F4B400]">a</span>
       <span className="text-[#34A853]">!</span>
