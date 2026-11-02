@@ -50,9 +50,29 @@ Uygulama `http://localhost:3000` adresinde çalışacaktır.
 | --- | --- |
 | `GET /api/search?q=&page=&time=` | Web araması (sayfalama + zaman filtresi) |
 | `GET /api/images?q=` | Görsel araması |
-| `GET /api/ai-overview?q=` | Arama sonuçlarından AI özeti |
+| `POST /api/ai-overview` | Arama sonuçlarından AI özeti |
 | `GET /api/suggest?q=` | Arama önerileri (otomatik tamamlama) |
 | `POST /api/voice` | Sesli arama (ses → metin) |
+
+## Dağıtım (Vercel vb.)
+
+Proje iki katmanlı arama mimarisi kullanır:
+
+| Ortam | Web Arama | Görsel Arama | Öneriler | AI Özeti | Sesli Arama |
+| --- | --- | --- | --- | --- | --- |
+| Z.ai sandbox | z-ai-sdk web_search | z-ai-sdk | LLM | LLM | ASR |
+| **Vercel / her yer** | DuckDuckGo → Lite → Mojeek zinciri | DuckDuckGo | DuckDuckGo | Kullanılamaz* | Kullanılamaz* |
+
+> \* AI özeti ve sesli arama, Z.ai SDK kimlik doğrulaması gerektirir; desteklenmeyen ortamlarda arayüz bunu nazikçe belirtir ve kalan tüm özellikler sorunsuz çalışmaya devam eder.
+
+**Vercel'e yükleme:**
+
+```bash
+npm i -g vercel
+vercel
+```
+
+veya GitHub'a pushladıktan sonra [vercel.com/new](https://vercel.com/new) üzerinden repoyu içe aktarın. Ek ortam değişkeni gerekmez — arama motoru anahtarsız DuckDuckGo/Mojeek zincirine otomatik düşer.
 
 ## GitHub'a Yükleme
 

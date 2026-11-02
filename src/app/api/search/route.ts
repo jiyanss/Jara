@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getZAI } from "@/lib/zai";
 import { globalCache } from "@/lib/cache";
+import { webSearchAny } from "@/lib/ddg";
 
 export const dynamic = "force-dynamic";
 
@@ -18,6 +19,7 @@ interface SearchCacheEntry {
   results: WebResult[];
   fetchedAt: number;
   tookMs: number;
+  provider: string;
 }
 
 const CACHE_TTL_MS = 10 * 60 * 1000; // 10 minutes
@@ -57,24 +59,38 @@ export async function GET(request: NextRequest) {
     let entry = cache.get(cacheKey);
 
     if (!entry) {
-      const zai = await getZAI();
       const startedAt = Date.now();
       let results: WebResult[] = [];
+      let provider = "zai";
 
-      // The upstream API may cap `num`; try progressively smaller sizes.
-      for (const num of [30, 20, 10]) {
-        try {
-          const args: { query: string; num: number; recency_days?: number } = {
-            query: q,
-            num,
-          };
-          if (recencyDays) args.recency_days = recencyDays;
-          const res = await zai.functions.invoke("web_search", args);
-          results = (res || []) as WebResult[];
-          if (results.length > 0) break;
-        } catch (err) {
-          console.error(`[api/search] web_search failed with num=${num}:`, err);
+      // Strategy 1: z-ai-web-dev-sdk web_search (works inside the Z.ai sandbox)
+      try {
+        const zai = await getZAI();
+        // The upstream API may cap `num`; try progressively smaller sizes.
+        for (const num of [30, 20, 10]) {
+          try {
+            const args: { query: string; num: number; recency_days?: number } = {
+              query: q,
+              num,
+            };
+            if (recencyDays) args.recency_days = recencyDays;
+            const res = await zai.functions.invoke("web_search", args);
+            results = (res || []) as WebResult[];
+            if (results.length > 0) break;
+          } catch (err) {
+            console.error(`[api/search] web_search failed with num=${num}:`, err);
+          }
         }
+      } catch (err) {
+        // ZAI unavailable (e.g. deployed outside the sandbox) — expected on Vercel
+        console.warn("[api/search] z-ai-sdk unavailable, falling back:", (err as Error).message);
+      }
+
+      // Strategy 2: keyless web search chain (DuckDuckGo → Lite → Mojeek)
+      if (results.length === 0) {
+        const fallback = await webSearchAny(q, recencyDays);
+        results = fallback.results;
+        provider = fallback.provider;
       }
 
       if (results.length === 0) {
@@ -84,7 +100,7 @@ export async function GET(request: NextRequest) {
         );
       }
 
-      entry = { results, fetchedAt: Date.now(), tookMs: Date.now() - startedAt };
+      entry = { results, fetchedAt: Date.now(), tookMs: Date.now() - startedAt, provider };
       cache.set(cacheKey, entry);
     }
 
@@ -101,6 +117,7 @@ export async function GET(request: NextRequest) {
       hasMore: startIdx + PER_PAGE < total,
       tookMs: entry.tookMs,
       cached: true,
+      provider: entry.provider,
       results: items,
     });
   } catch (error) {

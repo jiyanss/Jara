@@ -23,7 +23,17 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: "Ses kaydı çok büyük." }, { status: 413 });
     }
 
-    const zai = await getZAI();
+    let zai;
+    try {
+      zai = await getZAI();
+    } catch (err) {
+      // SDK config missing (e.g. deployed outside the Z.ai sandbox)
+      console.warn("[api/voice] z-ai-sdk unavailable:", (err as Error).message);
+      return NextResponse.json(
+        { error: "Sesli arama yalnızca Z.ai destekli ortamlarda kullanılabilir." },
+        { status: 503 }
+      );
+    }
     const res = await zai.audio.asr.create({ file_base64: base64Audio });
 
     // The SDK returns a loose shape; normalize common variants

@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getZAI } from "@/lib/zai";
 import { globalCache } from "@/lib/cache";
+import { ddgImageSearch } from "@/lib/ddg";
 
 export const dynamic = "force-dynamic";
 
@@ -30,22 +31,37 @@ export async function GET(request: NextRequest) {
     let results = cache.get(cacheKey);
 
     if (!results) {
-      const zai = await getZAI();
       results = [];
 
-      // NOTE: rank:true is dramatically slower (~45s vs ~10s), so we search unranked.
-      for (const count of [20, 10]) {
+      // Strategy 1: z-ai-web-dev-sdk (works inside the Z.ai sandbox)
+      try {
+        const zai = await getZAI();
+        // NOTE: rank:true is dramatically slower (~45s vs ~10s), so we search unranked.
+        for (const count of [20, 10]) {
+          try {
+            const res = await zai.images.search.create({
+              query: q,
+              count,
+              gl: "tr",
+              rank: false,
+            });
+            results = (res?.results || []) as ImageResultItem[];
+            if (results.length > 0) break;
+          } catch (err) {
+            console.error(`[api/images] image search failed with count=${count}:`, err);
+          }
+        }
+      } catch (err) {
+        // ZAI unavailable (e.g. Vercel) — fall back to DuckDuckGo
+        console.warn("[api/images] z-ai-sdk unavailable, falling back:", (err as Error).message);
+      }
+
+      // Strategy 2: keyless DuckDuckGo image search
+      if (results.length === 0) {
         try {
-          const res = await zai.images.search.create({
-            query: q,
-            count,
-            gl: "tr",
-            rank: false,
-          });
-          results = (res?.results || []) as ImageResultItem[];
-          if (results.length > 0) break;
+          results = await ddgImageSearch(q);
         } catch (err) {
-          console.error(`[api/images] image search failed with count=${count}:`, err);
+          console.error("[api/images] ddg image search failed:", err);
         }
       }
 

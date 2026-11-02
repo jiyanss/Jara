@@ -66,7 +66,17 @@ export async function POST(request: NextRequest) {
       )
       .join("\n\n");
 
-    const zai = await getZAI();
+    let zai;
+    try {
+      zai = await getZAI();
+    } catch (err) {
+      // SDK config missing (e.g. deployed outside the Z.ai sandbox)
+      console.warn("[api/ai-overview] z-ai-sdk unavailable:", (err as Error).message);
+      return NextResponse.json(
+        { error: "AI özeti yalnızca Z.ai destekli ortamlarda kullanılabilir." },
+        { status: 503 }
+      );
+    }
     const completion = await zai.chat.completions.create({
       messages: [
         {
