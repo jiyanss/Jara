@@ -73,7 +73,7 @@ export async function POST(request: NextRequest) {
       // SDK config missing (e.g. deployed outside the Z.ai sandbox)
       console.warn("[api/ai-overview] z-ai-sdk unavailable:", (err as Error).message);
       return NextResponse.json(
-        { error: "AI özeti yalnızca Z.ai destekli ortamlarda kullanılabilir." },
+        { error: "AI özeti yalnızca Z.ai destekli ortamlarda kullanılabilir.", unavailable: true },
         { status: 503 }
       );
     }

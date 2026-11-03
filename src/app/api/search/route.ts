@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getZAI } from "@/lib/zai";
 import { globalCache } from "@/lib/cache";
-import { webSearchAny } from "@/lib/ddg";
+import { webSearchAny, normalizeResults } from "@/lib/ddg";
 
 export const dynamic = "force-dynamic";
 // Vercel serverless: allow enough time for the multi-provider fallback chain
@@ -106,6 +106,10 @@ export async function GET(request: NextRequest) {
           );
         }
       }
+
+      // Final safety net for every provider (ZAI included): dedupe by URL,
+      // re-derive host_name from the URL hostname, guarantee favicons.
+      results = normalizeResults(results);
 
       if (results.length === 0) {
         return NextResponse.json(

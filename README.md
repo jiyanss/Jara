@@ -61,11 +61,13 @@ Proje iki katmanlı arama mimarisi kullanır:
 | Ortam | Web Arama | Görsel Arama | Öneriler | AI Özeti | Sesli Arama |
 | --- | --- | --- | --- | --- | --- |
 | Z.ai sandbox | z-ai-sdk web_search | z-ai-sdk | LLM | LLM | ASR |
-| **Vercel / her yer** | Brave* → DDG → Lite → Qwant → Mojeek → Google News → Wikipedia | DDG → Qwant → Wikimedia Commons | DDG → Qwant | Kullanılamaz* | Kullanılamaz* |
+| **Vercel / her yer** | Brave* → Bing RSS → DDG → Lite → Qwant → Mojeek → Bing News → Google News → Wikipedia | DDG → Qwant → Wikimedia Commons | DDG → Qwant | Gizlenir (503) | Kullanılamaz* |
 
 > \* İsteğe bağlı: [Brave Search API](https://api-dashboard.search.brave.com) ücretsiz anahtarı (ayda 2.000 sorgu) alıp Vercel ortam değişkeni `BRAVE_API_KEY` olarak eklerseniz web aramaları öncelikle Brave üzerinden yapılır — en yüksek kalite. Anahtar olmadan da anahtarsız zincir çalışır.
 >
-> \* AI özeti ve sesli arama, Z.ai SDK kimlik doğrulaması gerektirir; desteklenmeyen ortamlarda arayüz bunu nazikçe belirtir ve kalan tüm özellikler sorunsuz çalışmaya devam eder.
+> \* AI özeti ve sesli arama, Z.ai SDK kimlik doğrulaması gerektirir; desteklenmeyen ortamlarda AI Genel Bakış kartı tamamen gizlenir ve kalan tüm özellikler sorunsuz çalışmaya devam eder.
+>
+> \* Anahtarsız zincirin ilk durakları Bing RSS uçlarıdır — doğrudan makale URL'leri döndürürler, bot korumasına takılmazlar ve sonuçlar URL'nin kendi alan adından gösterilir (kaynak adı/domain karışması yaşanmaz).
 
 **Vercel'e yükleme:**
 
@@ -74,7 +76,7 @@ npm i -g vercel
 vercel
 ```
 
-veya GitHub'a pushladıktan sonra [vercel.com/new](https://vercel.com/new) üzerinden repoyu içe aktarın. Ek ortam değişkeni gerekmez — arama motoru anahtarsız DuckDuckGo/Mojeek zincirine otomatik düşer.
+veya GitHub'a pushladıktan sonra [vercel.com/new](https://vercel.com/new) üzerinden repoyu içe aktarın. Ek ortam değişkeni gerekmez — arama motoru anahtarsız Bing/DDG zincirine otomatik düşer.
 
 ## GitHub'a Yükleme
 

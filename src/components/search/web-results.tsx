@@ -98,9 +98,21 @@ function pathOf(url: string): string {
   }
 }
 
+/** Hostname derived from the actual result URL — the ground truth for display. */
+function hostOfUrl(url: string): string {
+  try {
+    return new URL(url).hostname.replace(/^www\./, "");
+  } catch {
+    return "";
+  }
+}
+
 function ResultItem({ result, terms, index }: { result: WebResult; terms: string[]; index: number }) {
   const date = formatDate(result.date);
   const path = pathOf(result.url);
+  // Derive the displayed host from the real URL (never trust host_name alone,
+  // otherwise redirect-URL results render as "https://SourceName/...").
+  const displayHost = hostOfUrl(result.url) || result.host_name.replace(/^www\./, "");
 
   return (
     <motion.article
@@ -111,12 +123,12 @@ function ResultItem({ result, terms, index }: { result: WebResult; terms: string
     >
       <div className="flex items-center gap-2.5">
         <span className="flex size-7 shrink-0 items-center justify-center rounded-full border bg-background">
-          <Favicon host={result.host_name} />
+          <Favicon host={displayHost} />
         </span>
         <div className="min-w-0 leading-tight">
-          <p className="truncate text-sm">{result.host_name}</p>
+          <p className="truncate text-sm">{displayHost}</p>
           <p className="truncate text-xs text-muted-foreground">
-            https://{result.host_name}
+            https://{displayHost}
             {path}
           </p>
         </div>

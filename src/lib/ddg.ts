@@ -90,6 +90,11 @@ function hostOf(url: string): string {
   }
 }
 
+/** A plausible domain name ("hurriyet.com.tr" ok, "Hürriyet" not). */
+function looksLikeHost(h: string): boolean {
+  return !!h && h.includes(".") && !/\s/.test(h) && /^[a-zA-Z0-9.\-]+$/.test(h);
+}
+
 /** Map recency days to a provider-specific filter. */
 function dfFromDays(days?: number): string | null {
   if (!days) return null;
@@ -99,6 +104,39 @@ function dfFromDays(days?: number): string | null {
   return "y";
 }
 
+const TR_MONTHS: Record<string, number> = {
+  jan: 0, feb: 1, mar: 2, apr: 3, may: 4, jun: 5,
+  jul: 6, aug: 7, sep: 8, oct: 9, nov: 10, dec: 11,
+  // Turkish RFC-822 month abbreviations (Bing localized feeds)
+  oca: 0, şub: 1, sub: 1, nis: 3, haz: 5, tem: 6,
+  ağu: 7, agu: 7, eyl: 8, eki: 9, kas: 10, ara: 11,
+};
+
+/** Parse RSS pubDate in any locale ("Mon, 02 Nov 2026 ..." / "Pzt, 02 Kas 2026 ...") → ISO date. */
+function parseRssDate(raw: string): string {
+  if (!raw) return "";
+  const s = raw.replace(/\s+/g, " ").trim();
+  const numericFirst = s.match(/(\d{1,2}) ([A-Za-zÇĞİÖŞÜçğıöşü]{3}) (\d{4})/);
+  const alphaFirst = s.match(/([A-Za-zÇĞİÖŞÜçğıöşü]{3}) (\d{1,2}),? (\d{4})/);
+  let day = NaN;
+  let mon = NaN;
+  let year = NaN;
+  if (numericFirst) {
+    day = Number(numericFirst[1]);
+    mon = TR_MONTHS[numericFirst[2].toLowerCase()];
+    year = Number(numericFirst[3]);
+  } else if (alphaFirst) {
+    mon = TR_MONTHS[alphaFirst[1].toLowerCase()];
+    day = Number(alphaFirst[2]);
+    year = Number(alphaFirst[3]);
+  }
+  if (!isNaN(day) && !isNaN(mon) && !isNaN(year)) {
+    return `${year}-${String(mon + 1).padStart(2, "0")}-${String(day).padStart(2, "0")}`;
+  }
+  const d = new Date(s);
+  return isNaN(d.getTime()) ? "" : d.toISOString().slice(0, 10);
+}
+
 function toResults(
   raw: Array<Omit<DdgWebResult, "rank" | "favicon"> & { favicon?: string }>
 ): DdgWebResult[] {
@@ -106,7 +144,14 @@ function toResults(
   const out: DdgWebResult[] = [];
   for (const r of raw) {
     if (!r.url.startsWith("http") || !r.name || seen.has(r.url)) continue;
-    const host = r.host_name || hostOf(r.url);
+    // The URL hostname is the ground truth — a hand-set host_name may be a
+    // publisher NAME (e.g. "Hürriyet") rather than a resolvable domain.
+    const urlHost = hostOf(r.url);
+    const host = looksLikeHost(urlHost)
+      ? urlHost
+      : looksLikeHost(r.host_name)
+        ? r.host_name
+        : "";
     if (!host) continue;
     seen.add(r.url);
     out.push({
@@ -118,6 +163,31 @@ function toResults(
       date: r.date || "",
       favicon: r.favicon || faviconFor(host),
     });
+  }
+  return out;
+}
+
+/**
+ * Last-line defense applied to EVERY result set (ZAI + all fallback providers):
+ * dedupe by URL, re-derive host_name from the URL hostname when possible and
+ * always provide a favicon URL. Guarantees the UI never renders a mangled
+ * `https://SourceName/…` style link line.
+ */
+export function normalizeResults(results: DdgWebResult[]): DdgWebResult[] {
+  const seen = new Set<string>();
+  const out: DdgWebResult[] = [];
+  for (const r of Array.isArray(results) ? results : []) {
+    const url = (r?.url || "").trim();
+    if (!url.startsWith("http") || seen.has(url)) continue;
+    seen.add(url);
+    const urlHost = hostOf(url);
+    const host = looksLikeHost(urlHost)
+      ? urlHost
+      : looksLikeHost(r.host_name || "")
+        ? r.host_name
+        : "";
+    if (!host) continue;
+    out.push({ ...r, url, host_name: host, favicon: faviconFor(host) });
   }
   return out;
 }
@@ -296,6 +366,69 @@ export async function mojeekWebSearch(query: string): Promise<DdgWebResult[]> {
   return toResults(raw);
 }
 
+/** Bing web-search RSS — keyless, bot-friendly, returns DIRECT article URLs. */
+export async function bingWebSearch(
+  query: string,
+  _recencyDays?: number
+): Promise<DdgWebResult[]> {
+  // NOTE: do NOT pass `mkt` — it badly skews results (e.g. "chatgpt" → quiz
+  // widgets). `setlang` + `cc` localize safely (verified via A/B testing).
+  const params = new URLSearchParams({ q: query, format: "rss", setlang: "tr", cc: "TR" });
+  const xml = await fetchText(`https://www.bing.com/search?${params.toString()}`);
+  const $ = cheerio.load(xml, { xmlMode: true });
+
+  const raw: Array<Omit<DdgWebResult, "rank" | "favicon">> = [];
+  $("item").each((_, el) => {
+    const $el = $(el);
+    const title = $el.find("title").first().text().replace(/\s+/g, " ").trim();
+    const link = $el.find("link").first().text().trim();
+    const snippet = stripTags($el.find("description").first().text() || "");
+    raw.push({
+      url: link,
+      name: title,
+      snippet,
+      host_name: hostOf(link),
+      date: parseRssDate($el.find("pubDate").first().text()),
+    });
+  });
+
+  return toResults(raw);
+}
+
+/** Bing News RSS — direct article URLs (the apiclick redirect wraps the target in `?url=`). */
+export async function bingNewsSearch(query: string): Promise<DdgWebResult[]> {
+  const params = new URLSearchParams({ q: query, format: "RSS" });
+  const xml = await fetchText(`https://www.bing.com/news/search?${params.toString()}`);
+  const $ = cheerio.load(xml, { xmlMode: true });
+
+  const raw: Array<Omit<DdgWebResult, "rank" | "favicon">> = [];
+  $("item").each((_, el) => {
+    if (raw.length >= 25) return;
+    const $el = $(el);
+    const title = $el.find("title").first().text().replace(/\s+/g, " ").trim();
+    const rawLink = $el.find("link").first().text().trim();
+    const link = resolveBingNewsLink(rawLink);
+    const snippet = stripTags($el.find("description").first().text() || "");
+    // Source lives in the namespaced <News:Source> child
+    let source = "";
+    for (const child of $el.children().toArray()) {
+      if ((child as { tagName?: string }).tagName?.toLowerCase() === "news:source") {
+        source = $(child).text().replace(/\s+/g, " ").trim();
+        break;
+      }
+    }
+    raw.push({
+      url: link,
+      name: title,
+      snippet,
+      host_name: hostOf(link) || source,
+      date: parseRssDate($el.find("pubDate").first().text()),
+    });
+  });
+
+  return toResults(raw);
+}
+
 /* ------------------------------------------------------------------ */
 /* Wave 2 providers — always reachable, bot-friendly                   */
 /* ------------------------------------------------------------------ */
@@ -313,6 +446,39 @@ function decodeGoogleNewsUrl(link: string): string {
   } catch {
     return link;
   }
+}
+
+/** Resolve Bing News redirect links: apiclick.aspx?...&url=<encoded target>. */
+function resolveBingNewsLink(href: string): string {
+  try {
+    const u = new URL(href);
+    const target = u.searchParams.get("url");
+    if (target && target.startsWith("http")) return target;
+    return href;
+  } catch {
+    return href;
+  }
+}
+
+/** Remove the duplicated "Title … Source" blob Google News puts in <description>. */
+function cleanNewsSnippet(desc: string, titleVariants: string[], source: string): string {
+  let s = desc.replace(/\s+/g, " ").trim();
+  for (const variant of titleVariants) {
+    const t = variant.replace(/\s+/g, " ").trim();
+    if (t && s.toLowerCase().startsWith(t.toLowerCase())) {
+      s = s.slice(t.length).trim();
+    }
+  }
+  const src = source.trim();
+  if (src) {
+    if (s.toLowerCase().startsWith(src.toLowerCase())) {
+      s = s.slice(src.length).trim();
+    }
+    if (s.toLowerCase().endsWith(src.toLowerCase())) {
+      s = s.slice(0, -src.length).trim();
+    }
+  }
+  return s.replace(/^[·—–|:-]+\s*/, "").replace(/\s*[·—–|:-]+$/, "").trim();
 }
 
 /** Google News RSS — keyless, extremely reliable (news-focused results). */
@@ -339,25 +505,30 @@ export async function googleNewsSearch(
     const titleFull = $el.find("title").first().text().trim();
     const link = $el.find("link").first().text().trim();
     const pubDate = $el.find("pubDate").first().text().trim();
-    const source = $el.find("source").first().text().trim();
+    const sourceEl = $el.find("source").first();
+    const sourceName = sourceEl.text().trim();
+    const sourceUrl = sourceEl.attr("url") || "";
     const description = stripTags($el.find("description").first().text() || "");
 
     // "Başlık - Kaynak" → title + source
     const sep = titleFull.lastIndexOf(" - ");
     const name = sep > 0 ? titleFull.slice(0, sep) : titleFull;
 
-    let date = "";
-    if (pubDate) {
-      const d = new Date(pubDate);
-      if (!isNaN(d.getTime())) date = d.toISOString().slice(0, 10);
-    }
+    // Older item IDs decode to the real article URL; newer ones (AU_yqL…)
+    // cannot be decoded locally and keep the news.google.com redirect (which
+    // still resolves in a browser). Either way host_name must be a DOMAIN.
+    const url = decodeGoogleNewsUrl(link);
+    const host =
+      hostOf(url) || hostOf(sourceUrl) || (looksLikeHost(sourceName) ? sourceName : "");
 
     raw.push({
-      url: decodeGoogleNewsUrl(link),
+      url,
       name,
-      snippet: description || (source ? `${source} kaynağından haber.` : ""),
-      host_name: source || hostOf(link),
-      date,
+      snippet:
+        cleanNewsSnippet(description, [name, titleFull], sourceName) ||
+        (sourceName ? `${sourceName} kaynağından haber.` : ""),
+      host_name: host,
+      date: parseRssDate(pubDate),
     });
   });
 
@@ -416,6 +587,7 @@ interface Provider {
 
 const WAVE1: Provider[] = [
   { name: "brave", fn: braveWebSearch },
+  { name: "bing", fn: bingWebSearch },
   { name: "ddg", fn: ddgWebSearch },
   { name: "ddg-lite", fn: ddgLiteWebSearch },
   { name: "qwant", fn: qwantWebSearch },
@@ -423,6 +595,7 @@ const WAVE1: Provider[] = [
 ];
 
 const WAVE2: Provider[] = [
+  { name: "bing-news", fn: bingNewsSearch },
   { name: "google-news", fn: googleNewsSearch },
   { name: "wikipedia", fn: wikipediaSearch },
 ];

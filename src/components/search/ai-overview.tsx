@@ -16,7 +16,7 @@ interface OverviewData {
   related: string[];
 }
 
-type OverviewState = "loading" | "done" | "error";
+type OverviewState = "loading" | "done" | "error" | "unavailable";
 
 interface AiOverviewProps {
   query: string;
@@ -51,13 +51,20 @@ export function AiOverview({ query, results, onSearch }: AiOverviewProps) {
         body: JSON.stringify({ q: query, results: resultsRef.current.slice(0, 6) }),
         signal: controller.signal,
       })
-        .then(async (res) => {
+        .then(async (res): Promise<OverviewData | null> => {
+          // 503 = no AI backend in this environment (e.g. Vercel deployment).
+          // Hide the card silently instead of showing a permanent error box.
+          if (res.status === 503) return null;
           const json = (await res.json()) as OverviewData & { error?: string };
           if (!res.ok || !json.summary) throw new Error(json.error || "failed");
-          return json;
+          return { summary: json.summary, related: json.related || [] };
         })
         .then((json) => {
-          setData({ summary: json.summary, related: json.related || [] });
+          if (!json) {
+            setState("unavailable");
+            return;
+          }
+          setData(json);
           setState("done");
         })
         .catch((err: unknown) => {
@@ -71,7 +78,7 @@ export function AiOverview({ query, results, onSearch }: AiOverviewProps) {
     };
   }, [query]);
 
-  if (hidden) return null;
+  if (hidden || state === "unavailable") return null;
 
   return (
     <motion.section
