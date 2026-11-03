@@ -61,13 +61,15 @@ Proje iki katmanlı arama mimarisi kullanır:
 | Ortam | Web Arama | Görsel Arama | Öneriler | AI Özeti | Sesli Arama |
 | --- | --- | --- | --- | --- | --- |
 | Z.ai sandbox | z-ai-sdk web_search | z-ai-sdk | LLM | LLM | ASR |
-| **Vercel / her yer** | Brave* → Bing RSS → DDG → Lite → Qwant → Mojeek → Bing News → Google News → Wikipedia | DDG → Qwant → Wikimedia Commons | DDG → Qwant | Gizlenir (503) | Kullanılamaz* |
+| **Vercel / her yer** | Brave* → Bing RSS → DDG → Lite → Qwant → Mojeek → Bing Intl → Bing News → Google News → Wikipedia | DDG → Qwant → Wikimedia Commons | DDG → Qwant | Gizlenir (503) | Kullanılamaz* |
 
 > \* İsteğe bağlı: [Brave Search API](https://api-dashboard.search.brave.com) ücretsiz anahtarı (ayda 2.000 sorgu) alıp Vercel ortam değişkeni `BRAVE_API_KEY` olarak eklerseniz web aramaları öncelikle Brave üzerinden yapılır — en yüksek kalite. Anahtar olmadan da anahtarsız zincir çalışır.
 >
 > \* AI özeti ve sesli arama, Z.ai SDK kimlik doğrulaması gerektirir; desteklenmeyen ortamlarda AI Genel Bakış kartı tamamen gizlenir ve kalan tüm özellikler sorunsuz çalışmaya devam eder.
 >
 > \* Anahtarsız zincirin ilk durakları Bing RSS uçlarıdır — doğrudan makale URL'leri döndürürler, bot korumasına takılmazlar ve sonuçlar URL'nin kendi alan adından gösterilir (kaynak adı/domain karışması yaşanmaz).
+>
+> \* **Alaka kapısı:** Bazı anahtarsız uçlar (özellikle Bing RSS) nadir sorgularda veri merkezli IP'lerden tamamen alakasız hazır sayfalar döndürebilir. Zincir, sağlayıcının sonuçlarını sorgu terimleriyle karşılaştırır; alakasızsa o sağlayıcıyı atlayıp sıradakini dener. Hiçbir sağlayıcı ilgili sonuç üretemezse kullanıcıya hata yerine dürüst "sonuç bulunamadı" ekranı gösterilir.
 
 **Vercel'e yükleme:**
 

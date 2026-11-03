@@ -112,10 +112,20 @@ export async function GET(request: NextRequest) {
       results = normalizeResults(results);
 
       if (results.length === 0) {
-        return NextResponse.json(
-          { error: "Arama sonuçları şu anda alınamadı. Lütfen kısa süre sonra tekrar deneyin." },
-          { status: 502 }
-        );
+        // Providers answered but nothing matched the query — show the honest
+        // "no results" screen instead of an error. Don't cache the empty set.
+        return NextResponse.json({
+          q,
+          page,
+          time,
+          perPage: PER_PAGE,
+          total: 0,
+          hasMore: false,
+          tookMs: Date.now() - startedAt,
+          cached: false,
+          provider: "irrelevant",
+          results: [],
+        });
       }
 
       entry = { results, fetchedAt: Date.now(), tookMs: Date.now() - startedAt, provider };

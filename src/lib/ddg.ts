@@ -369,11 +369,16 @@ export async function mojeekWebSearch(query: string): Promise<DdgWebResult[]> {
 /** Bing web-search RSS — keyless, bot-friendly, returns DIRECT article URLs. */
 export async function bingWebSearch(
   query: string,
-  _recencyDays?: number
+  _recencyDays?: number,
+  intl = false
 ): Promise<DdgWebResult[]> {
   // NOTE: do NOT pass `mkt` — it badly skews results (e.g. "chatgpt" → quiz
   // widgets). `setlang` + `cc` localize safely (verified via A/B testing).
-  const params = new URLSearchParams({ q: query, format: "rss", setlang: "tr", cc: "TR" });
+  const params = new URLSearchParams({ q: query, format: "rss" });
+  if (!intl) {
+    params.set("setlang", "tr");
+    params.set("cc", "TR");
+  }
   const xml = await fetchText(`https://www.bing.com/search?${params.toString()}`);
   const $ = cheerio.load(xml, { xmlMode: true });
 
@@ -577,6 +582,38 @@ export async function wikipediaSearch(query: string): Promise<DdgWebResult[]> {
 }
 
 /* ------------------------------------------------------------------ */
+/* Relevance gate                                                      */
+/* ------------------------------------------------------------------ */
+
+const TOKEN_SPLIT = /[^a-z0-9çğıöşüâêîû]+/;
+
+/** How many results contain at least one query token (title/snippet/url)? */
+function matchCount(results: DdgWebResult[], tokens: string[]): number {
+  let n = 0;
+  for (const r of results) {
+    const hay = `${r.name} ${r.snippet} ${r.url}`.toLowerCase();
+    if (tokens.some((t) => hay.includes(t))) n++;
+  }
+  return n;
+}
+
+/**
+ * Reject result sets that have (almost) nothing to do with the query.
+ * Bing's RSS endpoint serves canned/generic pages (weather, speedtest…)
+ * for rare queries from datacenter IPs — this gate skips such providers
+ * so the chain can try the next one instead of showing junk.
+ */
+export function looksRelevant(results: DdgWebResult[], query: string): boolean {
+  const tokens = (query.toLowerCase().split(TOKEN_SPLIT) || [])
+    .filter((t) => t.length >= 3)
+    .slice(0, 8);
+  if (tokens.length === 0) return true; // nothing to validate against
+  const len = results.length;
+  const need = Math.min(len, Math.max(2, Math.ceil(len * 0.2)));
+  return matchCount(results, tokens) >= need;
+}
+
+/* ------------------------------------------------------------------ */
 /* Orchestrator                                                        */
 /* ------------------------------------------------------------------ */
 
@@ -592,6 +629,8 @@ const WAVE1: Provider[] = [
   { name: "ddg-lite", fn: ddgLiteWebSearch },
   { name: "qwant", fn: qwantWebSearch },
   { name: "mojeek", fn: mojeekWebSearch },
+  // Last Bing attempt without locale params — different canned-junk profile
+  { name: "bing-intl", fn: (q: string) => bingWebSearch(q, undefined, true) },
 ];
 
 const WAVE2: Provider[] = [
@@ -601,31 +640,62 @@ const WAVE2: Provider[] = [
 ];
 
 /**
- * Provider-agnostic web search. Runs each wave in parallel, returns the
- * first provider (by priority order) that produced results. Throws only
- * when every provider across both waves fails.
+ * Provider-agnostic web search. Runs each wave in parallel and returns the
+ * first provider (by priority order) whose results PASS the relevance gate.
+ * Providers returning junk for the query are skipped, so a rare query falls
+ * through e.g. Bing → DDG → … → Bing News instead of showing canned pages.
+ *
+ * Throws only when every provider errored/returned nothing; returns
+ * `{ results: [], provider: "irrelevant" }` when results came back but NONE
+ * of them related to the query (the caller shows an honest "no results").
  */
 export async function webSearchAny(
   query: string,
   recencyDays?: number
 ): Promise<{ results: DdgWebResult[]; provider: string }> {
   const errors: string[] = [];
+  const tokens = (query.toLowerCase().split(TOKEN_SPLIT) || [])
+    .filter((t) => t.length >= 3)
+    .slice(0, 8);
+  let best: { results: DdgWebResult[]; provider: string; matched: number } | null = null;
 
   for (const wave of [WAVE1, WAVE2]) {
     const settled = await Promise.allSettled(wave.map((p) => p.fn(query, recencyDays)));
     for (let i = 0; i < wave.length; i++) {
       const s = settled[i];
-      if (s.status === "fulfilled" && s.value.length > 0) {
+      if (s.status !== "fulfilled" || s.value.length === 0) {
+        errors.push(
+          s.status === "rejected"
+            ? `${wave[i].name}: ${(s.reason as Error)?.message || "hata"}`
+            : `${wave[i].name}: boş`
+        );
+        continue;
+      }
+      // Query has no usable tokens (very short / punctuation only) → accept as-is
+      if (tokens.length === 0) {
         return { results: s.value, provider: wave[i].name };
       }
-      errors.push(
-        s.status === "rejected"
-          ? `${wave[i].name}: ${(s.reason as Error)?.message || "hata"}`
-          : `${wave[i].name}: boş`
-      );
+      const matched = matchCount(s.value, tokens);
+      const need = Math.min(s.value.length, Math.max(2, Math.ceil(s.value.length * 0.2)));
+      if (matched >= need) {
+        return { results: s.value, provider: wave[i].name };
+      }
+      if (!best || matched > best.matched) {
+        best = { results: s.value, provider: wave[i].name, matched };
+      }
+      errors.push(`${wave[i].name}: alakasız (${matched}/${s.value.length})`);
     }
   }
 
+  // Every provider failed the relevance gate. Return the least-bad set if it
+  // at least mentions the query a couple of times, else "no results".
+  if (best && best.matched >= 2) {
+    return { results: best.results, provider: best.provider };
+  }
+  if (best) {
+    return { results: [], provider: "irrelevant" };
+  }
+  // Not a single provider returned data — genuinely unreachable.
   throw new Error(`Tüm arama sağlayıcıları başarısız (${errors.join(" | ")})`);
 }
 
