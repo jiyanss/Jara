@@ -61,15 +61,19 @@ Proje iki katmanlı arama mimarisi kullanır:
 | Ortam | Web Arama | Görsel Arama | Öneriler | AI Özeti | Sesli Arama |
 | --- | --- | --- | --- | --- | --- |
 | Z.ai sandbox | z-ai-sdk web_search | z-ai-sdk | LLM | LLM | ASR |
-| **Vercel / her yer** | Brave* → Bing RSS → DDG → Lite → Qwant → Mojeek → Bing Intl → Bing News → Google News → Wikipedia | DDG → Qwant → Wikimedia Commons | DDG → Qwant | Gizlenir (503) | Kullanılamaz* |
+| **Vercel / her yer** | Brave* → Bing HTML → Bing RSS → DDG → Lite → Qwant → Mojeek → Bing Intl → **Wikipedia + Bing News + Google News karma sayfası** | DDG → Qwant → Wikimedia Commons | DDG → Qwant | Wikipedia özeti / sonuçlardan derlenen özet | Kullanılamaz* |
 
 > \* İsteğe bağlı: [Brave Search API](https://api-dashboard.search.brave.com) ücretsiz anahtarı (ayda 2.000 sorgu) alıp Vercel ortam değişkeni `BRAVE_API_KEY` olarak eklerseniz web aramaları öncelikle Brave üzerinden yapılır — en yüksek kalite. Anahtar olmadan da anahtarsız zincir çalışır.
 >
-> \* AI özeti ve sesli arama, Z.ai SDK kimlik doğrulaması gerektirir; desteklenmeyen ortamlarda AI Genel Bakış kartı tamamen gizlenir ve kalan tüm özellikler sorunsuz çalışmaya devam eder.
+> \* AI özeti Z.ai SDK gerektirir; desteklenmeyen ortamlarda iki anahtarsız düşme devreye girer: sorguyla güçlü eşleşen bir Wikipedia maddesi varsa maddeden gerçek bir **Özet** kartı (+kaynak linki) üretilir; yoksa arama sonuçlarının en alakalı parçacıkları tek kartta derlenir. Hiçbiri mümkün değilse kart sessizce gizlenir.
 >
-> \* Anahtarsız zincirin ilk durakları Bing RSS uçlarıdır — doğrudan makale URL'leri döndürürler, bot korumasına takılmazlar ve sonuçlar URL'nin kendi alan adından gösterilir (kaynak adı/domain karışması yaşanmaz).
+> \* Anahtarsız zincirin Bing uçları (HTML + RSS) doğrudan makale URL'leri döndürür; beslemelere karışan kendine referanslı `bing.com/search` linkleri otomatik filtrelenir.
 >
-> \* **Alaka kapısı:** Bazı anahtarsız uçlar (özellikle Bing RSS) nadir sorgularda veri merkezli IP'lerden tamamen alakasız hazır sayfalar döndürebilir. Zincir, sağlayıcının sonuçlarını sorgu terimleriyle karşılaştırır; alakasızsa o sağlayıcıyı atlayıp sıradakini dener. Hiçbir sağlayıcı ilgili sonuç üretemezse kullanıcıya hata yerine dürüst "sonuç bulunamadı" ekranı gösterilir.
+> \* **Alaka kapısı:** Bazı anahtarsız uçlar nadir sorgularda veri merkezli IP'lerden tamamen alakasız hazır sayfalar döndürebilir. Zincir, sağlayıcının sonuçlarını sorgu terimleriyle karşılaştırır; alakasızsa o sağlayıcıyı atlar.
+>
+> \* **Karma yedek sayfa:** Tüm web sağlayıcıları engellenirse (Vercel IP'lerinde olur) zincir çökmek yerine Wikipedia (yalnızca sorguyu içeren maddeler, en fazla 2) + Bing News + Google News sonuçlarını tek akışta birleştirir; aynı makale kopyaları ayıklanır ve haberler **en yeniden eskiye** sıralanır. Böylece tek bir eski haber beslemesinin tüm sayfayı işgal etmesi engellenir.
+>
+> \* **Teşhis:** `/api/search?q=...&debug=1` çağrısı hangi sağlayıcıların denendiğini, kaç sonuç döndüklerini ve alaka kapısına takılıp takılmadığını `attempts` alanında gösterir.
 
 **Vercel'e yükleme:**
 
@@ -78,7 +82,15 @@ npm i -g vercel
 vercel
 ```
 
-veya GitHub'a pushladıktan sonra [vercel.com/new](https://vercel.com/new) üzerinden repoyu içe aktarın. Ek ortam değişkeni gerekmez — arama motoru anahtarsız Bing/DDG zincirine otomatik düşer.
+veya GitHub'a pushladıktan sonra [vercel.com/new](https://vercel.com/new) üzerinden repoyu içe aktarın. Ek ortam değişkeni gerekmez — arama motoru anahtarsız zincire otomatik düşer.
+
+## Deploy Paketi (zip)
+
+`download/ara-arama-motoru.zip` dosyası `git archive` ile üretilir ve `.gitattributes` sayesinde **yalnızca uygulamayı** içerir: sandbox dosyaları (`skills/`, `tests/`, `examples/` vb.), ekran görüntüleri ve zip'in kendisi pakete girmez. Paketi kendiniz üretmek isterseniz:
+
+```bash
+git archive --format=zip --prefix=ara-arama-motoru/ HEAD -o download/ara-arama-motoru.zip
+```
 
 ## GitHub'a Yükleme
 

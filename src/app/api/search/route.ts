@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getZAI } from "@/lib/zai";
 import { globalCache } from "@/lib/cache";
-import { webSearchAny, normalizeResults } from "@/lib/ddg";
+import { webSearchAny, normalizeResults, type ProviderAttempt } from "@/lib/ddg";
 
 export const dynamic = "force-dynamic";
 // Vercel serverless: allow enough time for the multi-provider fallback chain
@@ -22,6 +22,7 @@ interface SearchCacheEntry {
   fetchedAt: number;
   tookMs: number;
   provider: string;
+  attempts?: ProviderAttempt[];
 }
 
 const CACHE_TTL_MS = 10 * 60 * 1000; // 10 minutes
@@ -64,6 +65,7 @@ export async function GET(request: NextRequest) {
       const startedAt = Date.now();
       let results: WebResult[] = [];
       let provider = "zai";
+      let attempts: ProviderAttempt[] = [];
 
       // Strategy 1: z-ai-web-dev-sdk web_search (works inside the Z.ai sandbox)
       try {
@@ -78,7 +80,10 @@ export async function GET(request: NextRequest) {
             if (recencyDays) args.recency_days = recencyDays;
             const res = await zai.functions.invoke("web_search", args);
             results = (res || []) as WebResult[];
-            if (results.length > 0) break;
+            if (results.length > 0) {
+              attempts = [{ provider: "zai", count: results.length }];
+              break;
+            }
           } catch (err) {
             console.error(`[api/search] web_search failed with num=${num}:`, err);
           }
@@ -95,6 +100,7 @@ export async function GET(request: NextRequest) {
           const fallback = await webSearchAny(q, recencyDays);
           results = fallback.results;
           provider = fallback.provider;
+          attempts = fallback.attempts;
         } catch (err) {
           console.error("[api/search] all fallback providers failed:", err);
           return NextResponse.json(
@@ -128,13 +134,14 @@ export async function GET(request: NextRequest) {
         });
       }
 
-      entry = { results, fetchedAt: Date.now(), tookMs: Date.now() - startedAt, provider };
+      entry = { results, fetchedAt: Date.now(), tookMs: Date.now() - startedAt, provider, attempts };
       cache.set(cacheKey, entry);
     }
 
     const total = entry.results.length;
     const startIdx = (page - 1) * PER_PAGE;
     const items = entry.results.slice(startIdx, startIdx + PER_PAGE);
+    const debug = request.nextUrl.searchParams.get("debug") === "1";
 
     return NextResponse.json({
       q,
@@ -146,6 +153,8 @@ export async function GET(request: NextRequest) {
       tookMs: entry.tookMs,
       cached: true,
       provider: entry.provider,
+      // Add &debug=1 to inspect which providers were tried and what came back
+      ...(debug && entry.attempts ? { attempts: entry.attempts } : {}),
       results: items,
     });
   } catch (error) {

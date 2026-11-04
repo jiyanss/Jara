@@ -2,7 +2,7 @@
 
 import { useEffect, useRef, useState } from "react";
 import { motion } from "framer-motion";
-import { Sparkles, X } from "lucide-react";
+import { FileText, Sparkles, X } from "lucide-react";
 import ReactMarkdown from "react-markdown";
 
 interface OverviewResult {
@@ -14,6 +14,9 @@ interface OverviewResult {
 interface OverviewData {
   summary: string;
   related: string[];
+  mode?: "ai" | "digest";
+  source?: string;
+  sourceUrl?: string;
 }
 
 type OverviewState = "loading" | "done" | "error" | "unavailable";
@@ -52,12 +55,18 @@ export function AiOverview({ query, results, onSearch }: AiOverviewProps) {
         signal: controller.signal,
       })
         .then(async (res): Promise<OverviewData | null> => {
-          // 503 = no AI backend in this environment (e.g. Vercel deployment).
+          // 503 = neither the AI backend nor a keyless digest was possible.
           // Hide the card silently instead of showing a permanent error box.
           if (res.status === 503) return null;
           const json = (await res.json()) as OverviewData & { error?: string };
           if (!res.ok || !json.summary) throw new Error(json.error || "failed");
-          return { summary: json.summary, related: json.related || [] };
+          return {
+            summary: json.summary,
+            related: json.related || [],
+            mode: json.mode || "ai",
+            source: json.source,
+            sourceUrl: json.sourceUrl,
+          };
         })
         .then((json) => {
           if (!json) {
@@ -90,13 +99,22 @@ export function AiOverview({ query, results, onSearch }: AiOverviewProps) {
     >
       <div className="mb-3 flex items-center justify-between">
         <h2 className="flex items-center gap-2 text-sm font-semibold">
-          <Sparkles className="size-4 text-[#34A853]" aria-hidden="true" />
-          AI Genel Bakış
+          {data?.mode === "digest" ? (
+            <FileText className="size-4 text-[#34A853]" aria-hidden="true" />
+          ) : (
+            <Sparkles className="size-4 text-[#34A853]" aria-hidden="true" />
+          )}
+          {data?.mode === "digest" ? "Özet" : "AI Genel Bakış"}
+          {data?.mode === "digest" && (
+            <span className="text-xs font-normal text-muted-foreground">
+              sonuçlardan derlendi
+            </span>
+          )}
         </h2>
         <button
           type="button"
           onClick={() => setHidden(true)}
-          aria-label="AI özetini kapat"
+          aria-label="Özeti kapat"
           className="rounded-full p-1.5 text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
         >
           <X className="size-4" aria-hidden="true" />
@@ -145,6 +163,24 @@ export function AiOverview({ query, results, onSearch }: AiOverviewProps) {
                 </button>
               ))}
             </div>
+          )}
+
+          {data.mode === "digest" && data.source && (
+            <p className="mt-4 text-xs text-muted-foreground">
+              Kaynak:{" "}
+              {data.sourceUrl ? (
+                <a
+                  href={data.sourceUrl}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="underline underline-offset-2 hover:text-foreground"
+                >
+                  {data.source}
+                </a>
+              ) : (
+                data.source
+              )}
+            </p>
           )}
         </>
       )}

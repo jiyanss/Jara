@@ -57,3 +57,13 @@ prompt
 server.log
 # Skills directory
 /skills/upload/
+
+# project artifacts & sandbox scaffolding (never ship)
+upload/
+download/
+tool-results/
+scripts/
+agent-ctx/
+
+# geçici indirme kopyası — asla git'e veya deploy zip'ine girmesin
+public/ara-arama-motoru.zip

@@ -1,0 +1,13 @@
+# git archive (zip) bu klasörleri dışarıda bırakır —
+# deploy zip'i yalnızca uygulamayı içerir, sandbox dosyalarını değil.
+skills/ export-ignore
+.zscripts/ export-ignore
+tests/ export-ignore
+examples/ export-ignore
+mini-services/ export-ignore
+upload/ export-ignore
+download/ export-ignore
+tool-results/ export-ignore
+scripts/ export-ignore
+agent-ctx/ export-ignore
+public/ara-arama-motoru.zip export-ignore

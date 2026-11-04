@@ -6,8 +6,16 @@ import * as cheerio from "cheerio";
  * when z-ai-web-dev-sdk is unavailable (e.g. outside the Z.ai sandbox).
  *
  * Web search chain (parallel waves, priority-ordered):
- *   Wave 1: Brave (if BRAVE_API_KEY set) → DuckDuckGo HTML → DDG Lite → Qwant → Mojeek
- *   Wave 2: Google News RSS → Wikipedia API (always reachable, bot-friendly)
+ *   Wave 1: Brave (if BRAVE_API_KEY set) → Bing HTML → Bing RSS → DDG → DDG Lite
+ *           → Qwant → Mojeek → Bing RSS (intl)
+ *   Wave 2 (merged, not first-wins): Wikipedia (gate-passing, max 2) +
+ *           Bing News + Google News — deduped, freshest first.
+ *
+ * The wave-2 merge exists because datacenter IPs (Vercel, AWS…) frequently
+ * get blocked or served canned junk by the wave-1 HTML endpoints; the news
+ * RSS + Wikipedia APIs are the only sources reachable from EVERYWHERE, so
+ * instead of letting a single news feed take over, we present a mixed,
+ * deduplicated, date-sorted page.
  */
 
 const UA =
@@ -144,6 +152,9 @@ function toResults(
   const out: DdgWebResult[] = [];
   for (const r of raw) {
     if (!r.url.startsWith("http") || !r.name || seen.has(r.url)) continue;
+    // Bing feeds pad themselves with self-referential links
+    // (bing.com/search?q=…) — never show those as "results".
+    if (/^https?:\/\/(www\.)?bing\.com\/(search|news\/search)/i.test(r.url)) continue;
     // The URL hostname is the ground truth — a hand-set host_name may be a
     // publisher NAME (e.g. "Hürriyet") rather than a resolvable domain.
     const urlHost = hostOf(r.url);
@@ -400,6 +411,58 @@ export async function bingWebSearch(
   return toResults(raw);
 }
 
+/**
+ * Decode Bing HTML redirect links: bing.com/ck/a?…&u=a1<base64url target>.
+ * Returns "" when the link cannot be resolved to a real target.
+ */
+function decodeBingCkLink(href: string): string {
+  try {
+    const abs = href.startsWith("//") ? `https:${href}` : href;
+    const u = new URL(abs, "https://www.bing.com");
+    if (!/^\/(ck\/a)$/i.test(u.pathname)) {
+      return abs.startsWith("http") ? abs : "";
+    }
+    const uParam = u.searchParams.get("u") || "";
+    if (uParam.startsWith("a1")) {
+      const b64 = uParam.slice(2).replace(/-/g, "+").replace(/_/g, "/");
+      const decoded = Buffer.from(b64, "base64").toString("utf-8");
+      if (decoded.startsWith("http")) return decoded;
+    }
+    return "";
+  } catch {
+    return "";
+  }
+}
+
+/**
+ * Bing web-search HTML — organic results for queries where the legacy RSS
+ * feed returns nothing. Links arrive wrapped in bing.com/ck/a redirects and
+ * are decoded to the real target URLs.
+ */
+export async function bingHtmlSearch(
+  query: string,
+  _recencyDays?: number
+): Promise<DdgWebResult[]> {
+  const params = new URLSearchParams({ q: query, count: "20", setlang: "tr", cc: "TR" });
+  const html = await fetchText(`https://www.bing.com/search?${params.toString()}`);
+  const $ = cheerio.load(html);
+
+  const raw: Array<Omit<DdgWebResult, "rank" | "favicon">> = [];
+  $("li.b_algo").each((_, el) => {
+    const $el = $(el);
+    const a = $el.find("h2 a").first();
+    const url = decodeBingCkLink(a.attr("href") || "");
+    const name = a.text().replace(/\s+/g, " ").trim();
+    if (!url || !name) return;
+    const snippet = stripTags(
+      $el.find(".b_caption p").first().text() || $el.find("p").first().text() || ""
+    );
+    raw.push({ url, name, snippet, host_name: hostOf(url), date: "" });
+  });
+
+  return toResults(raw);
+}
+
 /** Bing News RSS — direct article URLs (the apiclick redirect wraps the target in `?url=`). */
 export async function bingNewsSearch(query: string): Promise<DdgWebResult[]> {
   const params = new URLSearchParams({ q: query, format: "RSS" });
@@ -581,6 +644,26 @@ export async function wikipediaSearch(query: string): Promise<DdgWebResult[]> {
   return [];
 }
 
+/**
+ * Merge Bing News + Google News into one deduplicated stream.
+ * Same article syndicated by both providers (same host + similar title) or
+ * the exact same URL is collapsed to a single entry.
+ */
+function dedupeNews(items: DdgWebResult[]): DdgWebResult[] {
+  const seenUrl = new Set<string>();
+  const seenTitle = new Set<string>();
+  const out: DdgWebResult[] = [];
+  for (const r of items) {
+    if (seenUrl.has(r.url)) continue;
+    const tkey = `${r.host_name}|${r.name.toLowerCase().replace(/\s+/g, " ").slice(0, 48)}`;
+    if (seenTitle.has(tkey)) continue;
+    seenUrl.add(r.url);
+    seenTitle.add(tkey);
+    out.push(r);
+  }
+  return out;
+}
+
 /* ------------------------------------------------------------------ */
 /* Relevance gate                                                      */
 /* ------------------------------------------------------------------ */
@@ -622,8 +705,15 @@ interface Provider {
   fn: (q: string, days?: number) => Promise<DdgWebResult[]>;
 }
 
+export interface ProviderAttempt {
+  provider: string;
+  count: number;
+  note?: string;
+}
+
 const WAVE1: Provider[] = [
   { name: "brave", fn: braveWebSearch },
+  { name: "bing-html", fn: bingHtmlSearch },
   { name: "bing", fn: bingWebSearch },
   { name: "ddg", fn: ddgWebSearch },
   { name: "ddg-lite", fn: ddgLiteWebSearch },
@@ -640,10 +730,16 @@ const WAVE2: Provider[] = [
 ];
 
 /**
- * Provider-agnostic web search. Runs each wave in parallel and returns the
- * first provider (by priority order) whose results PASS the relevance gate.
- * Providers returning junk for the query are skipped, so a rare query falls
- * through e.g. Bing → DDG → … → Bing News instead of showing canned pages.
+ * Provider-agnostic web search.
+ *
+ * Wave 1 runs all general web providers in parallel; the first one (by
+ * priority order) whose results pass the relevance gate wins.
+ *
+ * Wave 2 is a MERGE, not a race: Wikipedia (only gate-passing entries, max 2)
+ * is prepended to a deduplicated Bing News + Google News stream sorted
+ * freshest-first. This guarantees that even from locked-down datacenter IPs
+ * (where every wave-1 HTML endpoint tends to be blocked) the user still gets
+ * a sensible mixed page instead of a single stale news feed.
  *
  * Throws only when every provider errored/returned nothing; returns
  * `{ results: [], provider: "irrelevant" }` when results came back but NONE
@@ -652,48 +748,104 @@ const WAVE2: Provider[] = [
 export async function webSearchAny(
   query: string,
   recencyDays?: number
-): Promise<{ results: DdgWebResult[]; provider: string }> {
+): Promise<{ results: DdgWebResult[]; provider: string; attempts: ProviderAttempt[] }> {
   const errors: string[] = [];
+  const attempts: ProviderAttempt[] = [];
   const tokens = (query.toLowerCase().split(TOKEN_SPLIT) || [])
     .filter((t) => t.length >= 3)
     .slice(0, 8);
   let best: { results: DdgWebResult[]; provider: string; matched: number } | null = null;
 
-  for (const wave of [WAVE1, WAVE2]) {
-    const settled = await Promise.allSettled(wave.map((p) => p.fn(query, recencyDays)));
-    for (let i = 0; i < wave.length; i++) {
+  const gateCheck = (name: string, value: DdgWebResult[]): boolean => {
+    // Query has no usable tokens (very short / punctuation only) → accept as-is
+    if (tokens.length === 0) return true;
+    const matched = matchCount(value, tokens);
+    const need = Math.min(value.length, Math.max(2, Math.ceil(value.length * 0.2)));
+    if (matched >= need) return true;
+    if (!best || matched > best.matched) {
+      best = { results: value, provider: name, matched };
+    }
+    errors.push(`${name}: alakasız (${matched}/${value.length})`);
+    attempts.push({ provider: name, count: value.length, note: `alakasız ${matched}/${value.length}` });
+    return false;
+  };
+
+  // ---- Wave 1: general web providers, first gate-passing set wins --------
+  {
+    const settled = await Promise.allSettled(
+      WAVE1.map((p) => p.fn(query, recencyDays))
+    );
+    for (let i = 0; i < WAVE1.length; i++) {
       const s = settled[i];
       if (s.status !== "fulfilled" || s.value.length === 0) {
-        errors.push(
+        const note =
           s.status === "rejected"
-            ? `${wave[i].name}: ${(s.reason as Error)?.message || "hata"}`
-            : `${wave[i].name}: boş`
-        );
+            ? (s.reason as Error)?.message || "hata"
+            : "boş";
+        errors.push(`${WAVE1[i].name}: ${note.slice(0, 80)}`);
+        attempts.push({ provider: WAVE1[i].name, count: 0, note: note.slice(0, 80) });
         continue;
       }
-      // Query has no usable tokens (very short / punctuation only) → accept as-is
-      if (tokens.length === 0) {
-        return { results: s.value, provider: wave[i].name };
+      attempts.push({ provider: WAVE1[i].name, count: s.value.length });
+      if (gateCheck(WAVE1[i].name, s.value)) {
+        return { results: s.value, provider: WAVE1[i].name, attempts };
       }
-      const matched = matchCount(s.value, tokens);
-      const need = Math.min(s.value.length, Math.max(2, Math.ceil(s.value.length * 0.2)));
-      if (matched >= need) {
-        return { results: s.value, provider: wave[i].name };
+    }
+  }
+
+  // ---- Wave 2: MERGED fallback (Wikipedia + Bing News + Google News) -----
+  {
+    const settled = await Promise.allSettled(
+      WAVE2.map((p) => p.fn(query, recencyDays))
+    );
+    const byName: Record<string, DdgWebResult[]> = {};
+    for (let i = 0; i < WAVE2.length; i++) {
+      const s = settled[i];
+      const name = WAVE2[i].name;
+      if (s.status !== "fulfilled" || s.value.length === 0) {
+        const note =
+          s.status === "rejected"
+            ? (s.reason as Error)?.message || "hata"
+            : "boş";
+        errors.push(`${name}: ${note.slice(0, 80)}`);
+        attempts.push({ provider: name, count: 0, note: note.slice(0, 80) });
+        byName[name] = [];
+        continue;
       }
-      if (!best || matched > best.matched) {
-        best = { results: s.value, provider: wave[i].name, matched };
+      byName[name] = s.value;
+      attempts.push({ provider: name, count: s.value.length });
+    }
+
+    // Wikipedia entries that individually mention the query (max 2, on top)
+    const wikiTop = (byName["wikipedia"] || [])
+      .filter((r) => tokens.length === 0 || matchCount([r], tokens) > 0)
+      .slice(0, 2);
+
+    // News: merged, deduped, freshest first (empty dates sink to the end)
+    const news = dedupeNews([
+      ...(byName["bing-news"] || []),
+      ...(byName["google-news"] || []),
+    ]);
+    if (!recencyDays) {
+      news.sort((a, b) => (b.date || "").localeCompare(a.date || ""));
+    }
+
+    const mixed = [...wikiTop, ...news];
+    if (mixed.length > 0) {
+      attempts.push({ provider: "news-mix", count: mixed.length });
+      if (gateCheck("news-mix", mixed)) {
+        return { results: mixed, provider: "news-mix", attempts };
       }
-      errors.push(`${wave[i].name}: alakasız (${matched}/${s.value.length})`);
     }
   }
 
   // Every provider failed the relevance gate. Return the least-bad set if it
   // at least mentions the query a couple of times, else "no results".
   if (best && best.matched >= 2) {
-    return { results: best.results, provider: best.provider };
+    return { results: best.results, provider: best.provider, attempts };
   }
   if (best) {
-    return { results: [], provider: "irrelevant" };
+    return { results: [], provider: "irrelevant", attempts };
   }
   // Not a single provider returned data — genuinely unreachable.
   throw new Error(`Tüm arama sağlayıcıları başarısız (${errors.join(" | ")})`);
